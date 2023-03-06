@@ -1,7 +1,6 @@
-MainProcessName : zhgAppDog.exe # 主程序进程名
-ActMqttTopic : zhg/appdog/act
-StatusMqttTopic : zhg/appdog/status
-ProcessStatusCheckRate : 60
+MacAddr : 3C-7C-3F-82-B3-32
+ProcessStatusCheckInterval : 60 # 单位s 支持小数点
+MainProcessPingInterval : 1 # 单位s 支持小数点
 
 Mqtt:
   Host : mqtt://127.0.0.1:19007

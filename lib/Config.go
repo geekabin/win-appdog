@@ -8,10 +8,9 @@ import (
 
 // 配置总结构体
 type Config struct {
-	MainProcessName        string `yaml:"MainProcessName"`
-	ActMqttTopic           string `yaml:"ActMqttTopic"`
-	StatusMqttTopic        string `yaml:"StatusMqttTopic"`
-	ProcessStatusCheckRate int64  `yaml:"ProcessStatusCheckRate"`
+	MacAddr                    string `yaml:"MacAddr"`
+	ProcessStatusCheckInterval int64  `yaml:"ProcessStatusCheckInterval"`
+	MainProcessPingInterval    int64  `yaml:"MainProcessPingInterval"`
 
 	Mqtt struct {
 		Host         string `yaml:"Host"`

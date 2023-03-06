@@ -13,7 +13,19 @@ import (
 	"appDog/lib"
 )
 
+const (
+	MainProcessPingMqttTopic = "zhg/appdog/mainProcess/ping"
+	MainProcessName          = "zhgAppDog.exe" // 主程序进程名
+	ProcessActMqttTopic      = "zhg/appdog/process/act"
+	ProcessStatusMqttTopic   = "zhg/appdog/process/status"
+)
+
+type MainProcessPingPayloadData struct {
+	MacAddr string `json:"MacAddr"`
+}
+
 type StatusPayloadData struct {
+	MacAddr  string `json:"MacAddr"`
 	UniqueId string `json:"UniqueId"`
 	Status   bool   `json:"Status"`
 }
@@ -38,7 +50,7 @@ func main() {
 		logger.Error(err)
 		os.Exit(1)
 	}
-	processName := config.MainProcessName
+	processName := MainProcessName
 	logger.Info("检查进程是否存在")
 
 	if processName == "" {
@@ -52,28 +64,28 @@ func main() {
 
 	logger.Info("链接MQTT")
 
-	pushStatusFunc := func(client mqtt.Client, UniqueId string, Status bool) {
-		payloadData := StatusPayloadData{
-			UniqueId: UniqueId,
-			Status:   Status,
-		}
+	pushStatusFunc := func(client mqtt.Client, topic string, payloadData interface{}) {
 
-		payloadJson, _ := json.Marshal(payloadData)
+		go func() {
+			payloadJson, _ := json.Marshal(payloadData)
+			token := client.Publish(topic, 0, false, string(payloadJson))
 
-		token := client.Publish(config.StatusMqttTopic, 0, false, string(payloadJson))
-		token.Wait()
-		if token.Error() != nil {
-			logger.Error(errors.New("Failed to subscribe to MQTT topic: " + token.Error().Error()))
-			return
-		}
-		logger.Info(string(payloadJson) + "消息推送成功")
+			token.Wait()
+
+			if token.Error() != nil {
+				logger.Error(errors.New("Failed to subscribe to MQTT topic: " + token.Error().Error()))
+				return
+			}
+			logger.Info(string(payloadJson) + "消息推送成功")
+		}()
+
 	}
 
 	connectFunc := func(client mqtt.Client) {
 		logger.Info("mqtt 已经连接成功")
 		logger.Info("监听mqtt主题")
 		var ActPayloadData ActPayloadData
-		err := client.Subscribe(config.ActMqttTopic, 0, func(client mqtt.Client, msg mqtt.Message) {
+		err := client.Subscribe(ProcessActMqttTopic, 0, func(client mqtt.Client, msg mqtt.Message) {
 			logger.Info(fmt.Sprintf("Received message: %s from topic: %s\n", string(msg.Payload()), msg.Topic()))
 
 			json.Unmarshal(msg.Payload(), &ActPayloadData)
@@ -84,6 +96,11 @@ func main() {
 					// 检查状态
 					/*appStatus := lib.ProcessExists(item.ProcessName)*/
 
+					payloadData := StatusPayloadData{
+						MacAddr:  config.MacAddr,
+						UniqueId: item.UniqueId,
+					}
+
 					switch ActPayloadData.Act {
 					case 0:
 						err := lib.KillProcessByName(item.ProcessName)
@@ -92,8 +109,9 @@ func main() {
 							logger.Error(err.Error())
 							return
 						}
+						payloadData.Status = false
 						logger.Info(fmt.Sprintf("成功关闭 %s", item.Name))
-						pushStatusFunc(client, item.ProcessName, false)
+						pushStatusFunc(client, ProcessStatusMqttTopic, payloadData)
 
 						break
 					case 1:
@@ -103,8 +121,10 @@ func main() {
 							logger.Error(err.Error())
 							return
 						}
+						payloadData.Status = true
 						logger.Info(fmt.Sprintf("成功打开 %s", item.Name))
-						pushStatusFunc(client, item.ProcessName, true)
+
+						pushStatusFunc(client, ProcessStatusMqttTopic, payloadData)
 						break
 					}
 					break
@@ -129,7 +149,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 订阅MQTT 主题
 	logger.Info("起一个协程上报程序状态")
 	go func() {
 		for {
@@ -138,13 +157,37 @@ func main() {
 				// 这个地方可能会存在瓶颈，因为这里会多次穷举进程信息
 				status := lib.ProcessExists(item.ProcessName)
 				logger.Info(fmt.Sprintf("检查程序%s的状态,当前状态为%t", item.Name, status))
-				pushStatusFunc(mqttClient.Client, item.UniqueId, status)
+
+				payloadData := StatusPayloadData{
+					MacAddr:  config.MacAddr,
+					UniqueId: item.UniqueId,
+					Status:   status,
+				}
+
+				pushStatusFunc(mqttClient.Client, ProcessStatusMqttTopic, payloadData)
 			}
-			waitSeconds := config.ProcessStatusCheckRate // 等待秒数
+			waitSeconds := config.ProcessStatusCheckInterval // 等待秒数
 			waitTime := time.Duration(waitSeconds) * time.Second
 			time.Sleep(waitTime)
 		}
 	}()
+
+	logger.Info("起一个协程上报主进程状态")
+	go func() {
+		for {
+
+			payloadData := MainProcessPingPayloadData{
+				MacAddr: config.MacAddr,
+			}
+
+			pushStatusFunc(mqttClient.Client, MainProcessPingMqttTopic, payloadData)
+
+			waitSeconds := config.MainProcessPingInterval // 等待秒数
+			waitTime := time.Duration(waitSeconds) * time.Second
+			time.Sleep(waitTime)
+		}
+	}()
+
 	<-c
 	mqttClient.Client.Disconnect(250)
 
