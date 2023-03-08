@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	MainProcessPingMqttTopic = "zhg/appdog/mainProcess/ping"
-	MainProcessName          = "zhgAppDog.exe" // 主程序进程名
-	ProcessActMqttTopic      = "zhg/appdog/process/act"
-	ProcessStatusMqttTopic   = "zhg/appdog/process/status"
+	MainProcessPingMqttTopic     = "zhg/appdog/mainProcess/ping"
+	MainProcessKillMqttTopicBase = "zhg/appdog/mainProcess/kill/"
+	MainProcessName              = "appDog.exe" // 主程序进程名
+	ProcessActMqttTopic          = "zhg/appdog/process/act"
+	ProcessStatusMqttTopic       = "zhg/appdog/process/status"
 )
 
 type MainProcessPingPayloadData struct {
@@ -84,6 +85,14 @@ func main() {
 	connectFunc := func(client mqtt.Client) {
 		logger.Info("mqtt 已经连接成功")
 		logger.Info("监听mqtt主题")
+
+		// 关机支持
+		client.Subscribe(MainProcessKillMqttTopicBase+config.MacAddr, 0, func(client mqtt.Client, msg mqtt.Message) {
+			logger.Info("接收到关机指令")
+			lib.ShutDownWin()
+		})
+
+		// 软件启动关闭
 		var ActPayloadData ActPayloadData
 		err := client.Subscribe(ProcessActMqttTopic, 0, func(client mqtt.Client, msg mqtt.Message) {
 			logger.Info(fmt.Sprintf("Received message: %s from topic: %s\n", string(msg.Payload()), msg.Topic()))
@@ -142,11 +151,19 @@ func main() {
 		logger.Info("等待自动重连")
 	}
 
-	// 开始MQTT 链接
-	mqttClient, err := lib.NewMQTTClient(config.Mqtt.Host, config.Mqtt.ClientId, config.Mqtt.Username, config.Mqtt.Password, config.Mqtt.CleanSession, connectFunc, connectLostFunc)
-	if err != nil {
-		logger.Error(err)
-		os.Exit(1)
+	// 开始连mqtt
+	mqConnectEd := false
+	var mqttClient *lib.MQTTClient
+
+	for !mqConnectEd {
+		mqttClient, err = lib.NewMQTTClient(config.Mqtt.Host, config.Mqtt.ClientId, config.Mqtt.Username, config.Mqtt.Password, config.Mqtt.CleanSession, connectFunc, connectLostFunc)
+		if err != nil {
+			logger.Error(err)
+		} else {
+			mqConnectEd = true
+		}
+		logger.Info("3s后尝试重新链接")
+		time.Sleep(3 * time.Second)
 	}
 
 	logger.Info("起一个协程上报程序状态")

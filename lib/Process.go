@@ -2,10 +2,24 @@ package lib
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"strings"
 	"syscall"
 )
+
+func ShutDownWin() error {
+
+	arg := []string{"-s", "-t", "1"}
+	cmd := exec.Command("shutdown", arg...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return err
+	}
+	return nil
+}
 
 func ProcessExists(processName string) bool {
 	// 使用 tasklist 命令查询系统中正在运行的进程
